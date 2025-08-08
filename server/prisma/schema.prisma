@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+enum Role {
+  admin
+  manager
+  developer
+  designer
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  review
+  done
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum ChannelType {
+  public
+  private
+  direct
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(developer)
+  avatar       String?  
+  lastActive   DateTime @default(now())
+  level        Int      @default(1)
+  points       Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  projects        ProjectMember[]
+  assignedTasks   Task[]        @relation("TaskAssignee")
+  comments        Comment[]
+  messages        Message[]
+}
+
+model Project {
+  id          String          @id @default(cuid())
+  name        String
+  description String
+  color       String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  // Relations
+  members ProjectMember[]
+  tasks   Task[]
+  channels ChatChannel[]
+}
+
+model ProjectMember {
+  id        String  @id @default(cuid())
+  user      User    @relation(fields: [userId], references: [id])
+  userId    String
+  project   Project @relation(fields: [projectId], references: [id])
+  projectId String
+  role      Role    @default(developer)
+  createdAt DateTime @default(now())
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String
+  status      TaskStatus   @default(todo)
+  priority    TaskPriority @default(medium)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  dueDate     DateTime?
+  tags        Json
+
+  project   Project @relation(fields: [projectId], references: [id])
+  projectId String
+
+  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId String?
+
+  comments Comment[]
+  relationsParent TaskRelation[] @relation("ParentRelations")
+  relationsChild  TaskRelation[] @relation("ChildRelations")
+  channels ChatChannel[]
+}
+
+model TaskRelation {
+  id       String @id @default(cuid())
+  parent   Task   @relation("ParentRelations", fields: [parentId], references: [id])
+  parentId String
+  child    Task   @relation("ChildRelations", fields: [childId], references: [id])
+  childId  String
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author   User @relation(fields: [authorId], references: [id])
+  authorId String
+  task     Task @relation(fields: [taskId], references: [id])
+  taskId   String
+}
+
+model ChatChannel {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  type        ChannelType @default(public)
+  createdAt   DateTime    @default(now())
+
+  project   Project? @relation(fields: [projectId], references: [id])
+  projectId String?
+
+  task     Task?    @relation(fields: [taskId], references: [id])
+  taskId   String?
+
+  messages Message[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  author   User        @relation(fields: [authorId], references: [id])
+  authorId String
+  channel  ChatChannel @relation(fields: [channelId], references: [id])
+  channelId String
+}
+

@@ -1,118 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, MoreHorizontal, Clock, User, Flag } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
 import { TaskForm } from './TaskForm';
-import { Task, User as UserType } from '../../types';
+import { TaskGraph } from './TaskGraph';
+import { Task } from '../../types';
+import * as api from '../../lib/api';
 
-const mockTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Design user authentication flow',
-    description: 'Create wireframes and mockups for the login and registration process',
-    status: 'todo',
-    priority: 'high',
-    createdAt: new Date('2024-01-15'),
-    updatedAt: new Date('2024-01-15'),
-    dueDate: new Date('2024-01-25'),
-    tags: ['design', 'ui/ux'],
-    project: {
-      id: '1',
-      name: 'Website Redesign',
-      description: '',
-      color: 'bg-blue-100',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      members: [],
-      tasksCount: 0,
-      completedTasks: 0
-    },
-    assignee: {
-      id: '1',
-      name: 'Alice Johnson',
-      email: 'alice@example.com',
-      role: 'designer',
-      lastActive: new Date()
-    },
-    comments: []
-  },
-  {
-    id: '2',
-    title: 'Implement JWT authentication',
-    description: 'Set up JWT tokens for secure user authentication',
-    status: 'in-progress',
-    priority: 'high',
-    createdAt: new Date('2024-01-14'),
-    updatedAt: new Date('2024-01-18'),
-    dueDate: new Date('2024-01-22'),
-    tags: ['backend', 'security'],
-    project: {
-      id: '1',
-      name: 'Website Redesign',
-      description: '',
-      color: 'bg-blue-100',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      members: [],
-      tasksCount: 0,
-      completedTasks: 0
-    },
-    assignee: {
-      id: '2',
-      name: 'Bob Smith',
-      email: 'bob@example.com',
-      role: 'developer',
-      lastActive: new Date()
-    },
-    comments: []
-  },
-  {
-    id: '3',
-    title: 'Database migration script',
-    description: 'Create migration script for user table updates',
-    status: 'review',
-    priority: 'medium',
-    createdAt: new Date('2024-01-12'),
-    updatedAt: new Date('2024-01-19'),
-    tags: ['database'],
-    project: {
-      id: '1',
-      name: 'Website Redesign',
-      description: '',
-      color: 'bg-blue-100',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      members: [],
-      tasksCount: 0,
-      completedTasks: 0
-    },
-    comments: []
-  },
-  {
-    id: '4',
-    title: 'Update documentation',
-    description: 'Update API documentation with new endpoints',
-    status: 'done',
-    priority: 'low',
-    createdAt: new Date('2024-01-10'),
-    updatedAt: new Date('2024-01-17'),
-    tags: ['documentation'],
-    project: {
-      id: '1',
-      name: 'Website Redesign',
-      description: '',
-      color: 'bg-blue-100',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      members: [],
-      tasksCount: 0,
-      completedTasks: 0
-    },
-    comments: []
-  }
-];
+// Removed unused mockTasks to clean up warnings
 
 const columns = [
   { id: 'todo', title: 'To Do', color: 'border-gray-300' },
@@ -122,51 +19,163 @@ const columns = [
 ];
 
 export function TaskBoard() {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showGraph, setShowGraph] = useState(false);
+  const [selectedTaskForGraph, setSelectedTaskForGraph] = useState<string | null>(null);
 
-  const handleTaskCreate = (taskData: Partial<Task>) => {
-    const newTask: Task = {
-      id: Math.random().toString(36),
-      title: taskData.title || '',
-      description: taskData.description || '',
-      status: 'todo',
-      priority: taskData.priority || 'medium',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      tags: taskData.tags || [],
-      project: mockTasks[0].project,
-      comments: []
+  // Load tasks from API
+  useEffect(() => {
+    const loadTasks = async () => {
+      setIsLoading(true);
+      try {
+        const apiTasks = await api.fetchTasks();
+        const convertedTasks: Task[] = apiTasks.map(task => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status.replace('_', '-') as Task['status'],
+          priority: task.priority,
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+          dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+          tags: task.tags,
+          project: {
+            id: task.projectId,
+            name: 'General',
+            description: '',
+            color: 'bg-blue-100',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            members: [],
+            tasksCount: 0,
+            completedTasks: 0
+          },
+          comments: []
+        }));
+        setTasks(convertedTasks);
+      } catch (error) {
+        console.error('Failed to load tasks:', error);
+      } finally {
+        setIsLoading(false);
+      }
     };
-    setTasks(prev => [...prev, newTask]);
-    setIsTaskFormOpen(false);
+    loadTasks();
+  }, []);
+
+  const handleTaskCreate = async (taskData: Partial<Task>) => {
+    try {
+      const createData = {
+        title: taskData.title || '',
+        description: taskData.description || '',
+        priority: taskData.priority || 'medium',
+        status: 'todo' as const,
+        tags: taskData.tags || [],
+        dueDate: taskData.dueDate?.toISOString(),
+        projectId: 'default' // Используем ID дефолтного проекта из сервера
+      };
+
+      const apiTask = await api.createTask(createData);
+      
+      const newTask: Task = {
+        id: apiTask.id,
+        title: apiTask.title,
+        description: apiTask.description,
+        status: apiTask.status.replace('_', '-') as Task['status'],
+        priority: apiTask.priority,
+        createdAt: new Date(apiTask.createdAt),
+        updatedAt: new Date(apiTask.updatedAt),
+        dueDate: apiTask.dueDate ? new Date(apiTask.dueDate) : undefined,
+        tags: apiTask.tags,
+        project: {
+          id: apiTask.projectId,
+          name: 'General',
+          description: '',
+          color: 'bg-blue-100',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          members: [],
+          tasksCount: 0,
+          completedTasks: 0
+        },
+        comments: []
+      };
+      
+      setTasks(prev => [...prev, newTask]);
+      setIsTaskFormOpen(false);
+      
+      // Notify other components about task creation
+      window.dispatchEvent(new CustomEvent('taskCreated'));
+    } catch (error) {
+      console.error('Failed to create task:', error);
+    }
   };
 
-  const handleTaskUpdate = (updatedTask: Task) => {
-    setTasks(prev => prev.map(task => task.id === updatedTask.id ? updatedTask : task));
-    setSelectedTask(null);
+  const handleTaskUpdate = async (updatedTask: Task | Partial<Task>) => {
+    try {
+      if (!updatedTask.id) {
+        console.error('Task update failed: missing task ID');
+        return;
+      }
+
+      const updateData = {
+        title: updatedTask.title,
+        description: updatedTask.description,
+        priority: updatedTask.priority,
+        status: updatedTask.status?.replace('-', '_') as api.ApiTask['status'],
+        tags: updatedTask.tags,
+        dueDate: updatedTask.dueDate?.toISOString()
+      };
+
+      await api.updateTask(updatedTask.id, updateData);
+      setTasks(prev => prev.map(task => task.id === updatedTask.id ? updatedTask as Task : task));
+      setSelectedTask(null);
+      
+      // Notify other components about task update
+      window.dispatchEvent(new CustomEvent('taskUpdated'));
+    } catch (error) {
+      console.error('Failed to update task:', error);
+    }
   };
 
   const handleDragStart = (task: Task) => {
     setDraggedTask(task);
   };
 
-  const handleDragOver = (e: React.DragEvent, status: string) => {
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
   };
 
-  const handleDrop = (e: React.DragEvent, newStatus: string) => {
+  const handleDrop = async (e: React.DragEvent, newStatus: string) => {
     e.preventDefault();
     if (draggedTask && draggedTask.status !== newStatus) {
-      setTasks(prev => 
-        prev.map(task => 
-          task.id === draggedTask.id 
-            ? { ...task, status: newStatus as Task['status'], updatedAt: new Date() }
-            : task
-        )
-      );
+      try {
+        const updatedTask = { 
+          ...draggedTask, 
+          status: newStatus as Task['status'], 
+          updatedAt: new Date() 
+        };
+
+        const updateData = {
+          status: newStatus.replace('-', '_') as api.ApiTask['status']
+        };
+
+        await api.updateTask(draggedTask.id, updateData);
+        
+        setTasks(prev => 
+          prev.map(task => 
+            task.id === draggedTask.id ? updatedTask : task
+          )
+        );
+        
+        // Notify other components about task update
+        window.dispatchEvent(new CustomEvent('taskUpdated'));
+      } catch (error) {
+        console.error('Failed to update task status:', error);
+      }
     }
     setDraggedTask(null);
   };
@@ -181,6 +190,16 @@ export function TaskBoard() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-lg text-gray-600">Loading tasks...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -193,10 +212,15 @@ export function TaskBoard() {
           <h1 className="text-3xl font-bold text-gray-900">Task Board</h1>
           <p className="text-gray-600 mt-1">Manage and track your team's progress</p>
         </div>
-        <Button onClick={() => setIsTaskFormOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          New Task
-        </Button>
+        <div className="flex space-x-3">
+          <Button onClick={() => setShowGraph(!showGraph)}>
+            {showGraph ? 'Hide Graph' : 'Show Graph'}
+          </Button>
+          <Button onClick={() => setIsTaskFormOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            New Task
+          </Button>
+        </div>
       </motion.div>
 
       {/* Kanban Board */}
@@ -208,7 +232,7 @@ export function TaskBoard() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: columnIndex * 0.1 }}
             className="space-y-4"
-            onDragOver={(e) => handleDragOver(e, column.id)}
+            onDragOver={handleDragOver}
             onDrop={(e) => handleDrop(e, column.id)}
           >
             <div className={`border-t-4 ${column.color} bg-white rounded-lg p-4`}>
@@ -232,7 +256,10 @@ export function TaskBoard() {
                       transition={{ delay: taskIndex * 0.05 }}
                       draggable
                       onDragStart={() => handleDragStart(task)}
-                      onClick={() => setSelectedTask(task)}
+                      onClick={() => {
+                        setSelectedTask(task);
+                        setSelectedTaskForGraph(task.id);
+                      }}
                       className="cursor-pointer mb-3"
                     >
                       <Card hover className="p-4">
@@ -298,6 +325,21 @@ export function TaskBoard() {
         ))}
       </div>
 
+      {/* Task Graph */}
+      {showGraph && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-8"
+        >
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Task Dependencies Graph</h2>
+          <TaskGraph 
+            projectId="default" 
+            rootTaskId={selectedTaskForGraph || undefined}
+          />
+        </motion.div>
+      )}
+
       {/* Task Form Modal */}
       <Modal
         isOpen={isTaskFormOpen}
@@ -319,11 +361,25 @@ export function TaskBoard() {
           title="Task Details"
           size="lg"
         >
-          <TaskForm
-            task={selectedTask}
-            onSubmit={handleTaskUpdate}
-            onCancel={() => setSelectedTask(null)}
-          />
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold">{selectedTask.title}</h3>
+              <Button 
+                onClick={() => {
+                  setShowGraph(true);
+                  setSelectedTaskForGraph(selectedTask.id);
+                }}
+                size="sm"
+              >
+                Show in Graph
+              </Button>
+            </div>
+            <TaskForm
+              task={selectedTask}
+              onSubmit={handleTaskUpdate}
+              onCancel={() => setSelectedTask(null)}
+            />
+          </div>
         </Modal>
       )}
     </div>

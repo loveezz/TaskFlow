@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './hooks/useAuth.tsx';
+// Ensure VITE_API_URL is loaded via import.meta.env
 import { AuthForm } from './components/auth/AuthForm';
 import { Sidebar } from './components/layout/Sidebar';
 import { Dashboard } from './components/dashboard/Dashboard';

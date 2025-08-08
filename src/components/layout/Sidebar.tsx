@@ -46,7 +46,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
             <div className="w-4 h-4 bg-white rounded-sm"></div>
           </div>
-          <span className="text-xl font-bold text-gray-900">TaskFlow</span>
+          <span className="text-xl font-bold text-gray-900">Magnesium</span>
         </div>
       </div>
 

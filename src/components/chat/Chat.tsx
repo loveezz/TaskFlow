@@ -6,6 +6,7 @@ import { Input } from '../ui/Input';
 import { Card } from '../ui/Card';
 import { ChatChannel, Message, User } from '../../types';
 import { useAuth } from '../../hooks/useAuth.tsx';
+import * as api from '../../lib/api';
 
 const mockChannels: ChatChannel[] = [
   {
@@ -84,11 +85,76 @@ const mockMessages: Message[] = [
 
 export function Chat() {
   const { user } = useAuth();
-  const [selectedChannel, setSelectedChannel] = useState<ChatChannel>(mockChannels[0]);
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  const [channels, setChannels] = useState<ChatChannel[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<ChatChannel | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Load channels
+  useEffect(() => {
+    const loadChannels = async () => {
+      setIsLoading(true);
+      try {
+        const apiChannels = await api.fetchChannels();
+        const convertedChannels: ChatChannel[] = apiChannels.map(ch => ({
+          id: ch.id,
+          name: ch.name,
+          description: ch.description,
+          type: ch.type,
+          members: [],
+          createdAt: new Date(),
+          unreadCount: 0
+        }));
+        
+        setChannels(convertedChannels);
+        if (convertedChannels.length > 0) {
+          setSelectedChannel(convertedChannels[0]);
+        }
+      } catch (error) {
+        console.error('Failed to load channels:', error);
+        // Fallback to mock data
+        setChannels(mockChannels);
+        setSelectedChannel(mockChannels[0]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadChannels();
+  }, []);
+
+  // Load messages when channel changes
+  useEffect(() => {
+    if (!selectedChannel) return;
+    
+    const loadMessages = async () => {
+      try {
+        const apiMessages = await api.fetchMessages(selectedChannel.id);
+        const convertedMessages: Message[] = apiMessages.map(msg => ({
+          id: msg.id,
+          content: msg.content,
+          author: {
+            id: msg.author.id,
+            name: msg.author.name,
+            email: msg.author.name + '@example.com',
+            role: 'developer',
+            lastActive: new Date()
+          },
+          channel: selectedChannel,
+          createdAt: new Date(msg.createdAt),
+          mentions: []
+        }));
+        setMessages(convertedMessages);
+      } catch (error) {
+        console.error('Failed to load messages:', error);
+        // Fallback to mock data for current channel
+        setMessages(mockMessages.filter(msg => msg.channel.id === selectedChannel.id));
+      }
+    };
+    loadMessages();
+  }, [selectedChannel]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -98,28 +164,45 @@ export function Chat() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user) return;
+    if (!newMessage.trim() || !user || !selectedChannel) return;
 
-    const message: Message = {
-      id: Math.random().toString(36),
-      content: newMessage,
-      author: user,
-      channel: selectedChannel,
-      createdAt: new Date(),
-      mentions: []
-    };
+    try {
+      const apiMessage = await api.sendMessage(selectedChannel.id, newMessage);
+      
+      const message: Message = {
+        id: apiMessage.id,
+        content: apiMessage.content,
+        author: user,
+        channel: selectedChannel,
+        createdAt: new Date(apiMessage.createdAt),
+        mentions: []
+      };
 
-    setMessages(prev => [...prev, message]);
-    setNewMessage('');
+      setMessages(prev => [...prev, message]);
+      setNewMessage('');
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // Fallback to local message
+      const message: Message = {
+        id: Math.random().toString(36),
+        content: newMessage,
+        author: user,
+        channel: selectedChannel,
+        createdAt: new Date(),
+        mentions: []
+      };
+      setMessages(prev => [...prev, message]);
+      setNewMessage('');
+    }
   };
 
-  const filteredChannels = mockChannels.filter(channel =>
+  const filteredChannels = channels.filter(channel =>
     channel.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const channelMessages = messages.filter(message => message.channel.id === selectedChannel.id);
+  const channelMessages = selectedChannel ? messages.filter(message => message.channel.id === selectedChannel.id) : [];
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', { 
@@ -128,6 +211,16 @@ export function Chat() {
       hour12: false 
     });
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen bg-gray-50">
+        <div className="flex items-center justify-center w-full">
+          <div className="text-lg text-gray-600">Loading chat...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -167,7 +260,7 @@ export function Chat() {
               whileTap={{ scale: 0.98 }}
               onClick={() => setSelectedChannel(channel)}
               className={`w-full flex items-center justify-between p-3 rounded-lg text-left mb-1 transition-colors ${
-                selectedChannel.id === channel.id
+                selectedChannel?.id === channel.id
                   ? 'bg-gray-100 text-gray-900'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
               }`}
@@ -199,16 +292,16 @@ export function Chat() {
           className="bg-white border-b border-gray-200 p-4 flex items-center justify-between"
         >
           <div className="flex items-center space-x-3">
-            {selectedChannel.type === 'public' ? (
+            {selectedChannel?.type === 'public' ? (
               <Hash className="w-5 h-5 text-gray-400" />
             ) : (
               <Lock className="w-5 h-5 text-gray-400" />
             )}
             <div>
               <h1 className="text-lg font-semibold text-gray-900">
-                #{selectedChannel.name}
+                #{selectedChannel?.name || 'Select a channel'}
               </h1>
-              {selectedChannel.description && (
+              {selectedChannel?.description && (
                 <p className="text-sm text-gray-600">{selectedChannel.description}</p>
               )}
             </div>
@@ -257,13 +350,14 @@ export function Chat() {
             <div className="flex-1">
               <Input
                 type="text"
-                placeholder={`Message #${selectedChannel.name}`}
+                placeholder={`Message #${selectedChannel?.name || 'channel'}`}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 className="border-gray-300 focus:border-gray-400 focus:ring-gray-400"
+                disabled={!selectedChannel}
               />
             </div>
-            <Button type="submit" disabled={!newMessage.trim()}>
+            <Button type="submit" disabled={!newMessage.trim() || !selectedChannel}>
               <Send className="w-4 h-4" />
             </Button>
           </form>
