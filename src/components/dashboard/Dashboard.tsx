@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Plus, Clock, CheckCircle, AlertCircle, TrendingUp } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Card } from '../ui/Card';
 import { Project, Task } from '../../types';
+import * as api from '../../lib/api';
+import { fetchProjects } from '../../lib/projects';
 
 const mockProjects: Project[] = [
   {
@@ -48,16 +50,64 @@ interface DashboardProps {
 
 export function Dashboard({ onViewChange }: DashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [stats, setStats] = useState({
+    projectsCount: 0,
+    tasks: 0,
+    completedTasks: 0,
+    pendingTasks: 0,
+    completionRate: 0
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
-  const filteredProjects = mockProjects.filter(project =>
+  // Load dashboard data
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      setIsLoading(true);
+      try {
+        const [statsData, projectsData] = await Promise.all([
+          api.fetchStats(),
+          fetchProjects()
+        ]);
+        
+        setStats(statsData);
+        
+        const convertedProjects: Project[] = projectsData.map(project => ({
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          color: project.color,
+          createdAt: new Date(project.createdAt),
+          updatedAt: new Date(project.updatedAt),
+          members: [],
+          tasksCount: project.tasksCount,
+          completedTasks: project.completedTasks
+        }));
+        
+        setProjects(convertedProjects);
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadDashboardData();
+  }, []);
+
+  const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     project.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const totalTasks = mockProjects.reduce((acc, project) => acc + project.tasksCount, 0);
-  const completedTasks = mockProjects.reduce((acc, project) => acc + project.completedTasks, 0);
-  const pendingTasks = totalTasks - completedTasks;
-  const completionRate = Math.round((completedTasks / totalTasks) * 100);
+  if (isLoading) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-lg text-gray-600">Loading dashboard...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -101,28 +151,28 @@ export function Dashboard({ onViewChange }: DashboardProps) {
           {
             icon: CheckCircle,
             label: 'Completed Tasks',
-            value: completedTasks,
+            value: stats.completedTasks,
             color: 'text-green-600',
             bgColor: 'bg-green-50'
           },
           {
             icon: Clock,
             label: 'Pending Tasks',
-            value: pendingTasks,
+            value: stats.pendingTasks,
             color: 'text-yellow-600',
             bgColor: 'bg-yellow-50'
           },
           {
             icon: AlertCircle,
             label: 'Active Projects',
-            value: mockProjects.length,
+            value: stats.projectsCount,
             color: 'text-blue-600',
             bgColor: 'bg-blue-50'
           },
           {
             icon: TrendingUp,
             label: 'Completion Rate',
-            value: `${completionRate}%`,
+            value: `${stats.completionRate}%`,
             color: 'text-purple-600',
             bgColor: 'bg-purple-50'
           }
