@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, MoreHorizontal, Clock, User, Flag } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -6,6 +6,7 @@ import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
 import { TaskForm } from './TaskForm';
 import { Task, User as UserType } from '../../types';
+import * as api from '../../lib/api';
 
 const mockTasks: Task[] = [
   {
@@ -122,31 +123,112 @@ const columns = [
 ];
 
 export function TaskBoard() {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleTaskCreate = (taskData: Partial<Task>) => {
-    const newTask: Task = {
-      id: Math.random().toString(36),
-      title: taskData.title || '',
-      description: taskData.description || '',
-      status: 'todo',
-      priority: taskData.priority || 'medium',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      tags: taskData.tags || [],
-      project: mockTasks[0].project,
-      comments: []
+  // Load tasks from API
+  useEffect(() => {
+    const loadTasks = async () => {
+      setIsLoading(true);
+      try {
+        const apiTasks = await api.fetchTasks();
+        const convertedTasks: Task[] = apiTasks.map(task => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status.replace('_', '-') as Task['status'],
+          priority: task.priority,
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+          dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+          tags: task.tags,
+          project: {
+            id: task.projectId,
+            name: 'General',
+            description: '',
+            color: 'bg-blue-100',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            members: [],
+            tasksCount: 0,
+            completedTasks: 0
+          },
+          comments: []
+        }));
+        setTasks(convertedTasks);
+      } catch (error) {
+        console.error('Failed to load tasks:', error);
+      } finally {
+        setIsLoading(false);
+      }
     };
-    setTasks(prev => [...prev, newTask]);
-    setIsTaskFormOpen(false);
+    loadTasks();
+  }, []);
+
+  const handleTaskCreate = async (taskData: Partial<Task>) => {
+    try {
+      const createData = {
+        title: taskData.title || '',
+        description: taskData.description || '',
+        priority: taskData.priority || 'medium',
+        status: 'todo',
+        tags: taskData.tags || [],
+        dueDate: taskData.dueDate?.toISOString()
+      };
+
+      const apiTask = await api.createTask(createData);
+      
+      const newTask: Task = {
+        id: apiTask.id,
+        title: apiTask.title,
+        description: apiTask.description,
+        status: apiTask.status.replace('_', '-') as Task['status'],
+        priority: apiTask.priority,
+        createdAt: new Date(apiTask.createdAt),
+        updatedAt: new Date(apiTask.updatedAt),
+        dueDate: apiTask.dueDate ? new Date(apiTask.dueDate) : undefined,
+        tags: apiTask.tags,
+        project: {
+          id: apiTask.projectId,
+          name: 'General',
+          description: '',
+          color: 'bg-blue-100',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          members: [],
+          tasksCount: 0,
+          completedTasks: 0
+        },
+        comments: []
+      };
+      
+      setTasks(prev => [...prev, newTask]);
+      setIsTaskFormOpen(false);
+    } catch (error) {
+      console.error('Failed to create task:', error);
+    }
   };
 
-  const handleTaskUpdate = (updatedTask: Task) => {
-    setTasks(prev => prev.map(task => task.id === updatedTask.id ? updatedTask : task));
-    setSelectedTask(null);
+  const handleTaskUpdate = async (updatedTask: Task) => {
+    try {
+      const updateData = {
+        title: updatedTask.title,
+        description: updatedTask.description,
+        priority: updatedTask.priority,
+        status: updatedTask.status.replace('-', '_'),
+        tags: updatedTask.tags,
+        dueDate: updatedTask.dueDate?.toISOString()
+      };
+
+      await api.updateTask(updatedTask.id, updateData);
+      setTasks(prev => prev.map(task => task.id === updatedTask.id ? updatedTask : task));
+      setSelectedTask(null);
+    } catch (error) {
+      console.error('Failed to update task:', error);
+    }
   };
 
   const handleDragStart = (task: Task) => {
@@ -157,16 +239,30 @@ export function TaskBoard() {
     e.preventDefault();
   };
 
-  const handleDrop = (e: React.DragEvent, newStatus: string) => {
+  const handleDrop = async (e: React.DragEvent, newStatus: string) => {
     e.preventDefault();
     if (draggedTask && draggedTask.status !== newStatus) {
-      setTasks(prev => 
-        prev.map(task => 
-          task.id === draggedTask.id 
-            ? { ...task, status: newStatus as Task['status'], updatedAt: new Date() }
-            : task
-        )
-      );
+      try {
+        const updatedTask = { 
+          ...draggedTask, 
+          status: newStatus as Task['status'], 
+          updatedAt: new Date() 
+        };
+
+        const updateData = {
+          status: newStatus.replace('-', '_')
+        };
+
+        await api.updateTask(draggedTask.id, updateData);
+        
+        setTasks(prev => 
+          prev.map(task => 
+            task.id === draggedTask.id ? updatedTask : task
+          )
+        );
+      } catch (error) {
+        console.error('Failed to update task status:', error);
+      }
     }
     setDraggedTask(null);
   };
@@ -180,6 +276,16 @@ export function TaskBoard() {
       default: return 'text-gray-600 bg-gray-50';
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-lg text-gray-600">Loading tasks...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
